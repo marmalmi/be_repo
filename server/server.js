@@ -25,6 +25,19 @@ function saveUsers(users) {
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
+// Simple placeholder token system (NOT secure, just for testing)
+function createToken(username) {
+    return Buffer.from(username).toString('base64');
+}
+
+function decodeToken(token) {
+    try {
+        return Buffer.from(token, 'base64').toString('utf8');
+    } catch {
+        return null;
+    }
+}
+
 // ----------------------
 //   REGISTER ROUTE
 // ----------------------
@@ -94,6 +107,54 @@ app.post('/login', async (req, res) => {
         return res.status(500).json({ message: 'unexpected error happened' });
     }
 });
+app.post('/add_task', (req, res) => {
+    try {
+        const { token, task } = req.body;
+
+        if (!token || !task) {
+            return res.status(400).json({ message: 'missing token or task' });
+        }
+
+        // Decode username from token
+        const username = decodeToken(token);
+        if (!username) {
+            return res.status(401).json({ message: 'invalid token' });
+        }
+
+        // Load tasks.json
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
+
+        // Ensure user has a task list
+        if (!tasks[username]) {
+            tasks[username] = [];
+        }
+
+        // Add new task
+        const newTask = {
+            id: Date.now(),
+            text: task
+        };
+
+        tasks[username].push(newTask);
+
+        // Save file
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+
+        return res.status(200).json({ message: 'task added', task: newTask });
+
+    } catch (err) {
+        console.error('Task add error:', err);
+        return res.status(500).json({ message: 'unexpected error happened' });
+    }
+});
+
 
 // ----------------------
 //   SERVER START
