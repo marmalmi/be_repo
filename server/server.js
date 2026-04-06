@@ -60,6 +60,41 @@ app.post('/register', async (req, res) => {
     }
 });
 
+app.post('/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+
+        // Basic validation
+        if (!username || !password) {
+            return res.status(400).json({ message: 'missing username or password' });
+        }
+
+        const users = loadUsers();
+
+        // Find user
+        const user = users.find(u => u.username === username);
+        if (!user) {
+            // Standard practice: 404 for unknown username
+            return res.status(404).json({ message: 'username not found' });
+        }
+
+        // Verify password using Argon2
+        const isValid = await argon2.verify(user.passwordHash, password);
+
+        if (!isValid) {
+            // Username exists but password is wrong
+            return res.status(401).json({ message: false });
+        }
+
+        // Login successful
+        return res.status(200).json({ message: true });
+
+    } catch (err) {
+        console.error('Login error:', err);
+        return res.status(500).json({ message: 'unexpected error happened' });
+    }
+});
+
 // ----------------------
 //   SERVER START
 // ----------------------
