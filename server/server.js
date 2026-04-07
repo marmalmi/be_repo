@@ -197,6 +197,50 @@ app.post('/get_all_tasks', (req, res) => {
         return res.status(500).json({ message: 'unexpected error happened' });
     }
 });
+app.post('/get_task', (req, res) => {
+    try {
+        const { token, id } = req.body;
+
+        if (!token || !id) {
+            return res.status(400).json({ message: 'missing token or id' });
+        }
+
+        // Decode username from token
+        const username = decodeToken(token);
+        if (!username) {
+            return res.status(401).json({ message: 'invalid token' });
+        }
+
+        // Load tasks.json
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
+
+        // Get user's tasks (or empty array)
+        const userTasks = tasks[username] || [];
+
+        // Find the task with matching ID
+        const task = userTasks.find(t => t.id === id);
+
+        if (!task) {
+            return res.status(404).json({ message: 'task not found' });
+        }
+
+        return res.status(200).json({
+            message: 'task fetched',
+            task: task
+        });
+
+    } catch (err) {
+        console.error('Get task error:', err);
+        return res.status(500).json({ message: 'unexpected error happened' });
+    }
+});
 
 
 // ----------------------
