@@ -341,6 +341,64 @@ app.post('/delete_all_tasks', (req, res) => {
         return res.status(500).json({ message: 'unexpected error happened' });
     }
 });
+app.post('/edit_task', (req, res) => {
+    try {
+        const { token, oldTask, newTask } = req.body;
+
+        if (!token || !oldTask || !newTask) {
+            return res.status(400).json({ message: 'missing token, oldTask, or newTask' });
+        }
+
+        // Decode username from token
+        const username = decodeToken(token);
+        if (!username) {
+            return res.status(401).json({ message: 'invalid token' });
+        }
+
+        // Validate IDs
+        if (!oldTask.id || !newTask.id || oldTask.id !== newTask.id) {
+            return res.status(400).json({ message: 'task IDs missing or do not match' });
+        }
+
+        const taskId = Number(oldTask.id);
+
+        // Load tasks.json
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
+
+        // User's tasks
+        const userTasks = tasks[username] || [];
+
+        // Find index of the task
+        const index = userTasks.findIndex(t => t.id === taskId);
+
+        if (index === -1) {
+            return res.status(404).json({ message: 'task not found' });
+        }
+
+        // Replace old task with new task
+        userTasks[index] = newTask;
+
+        // Save updated tasks
+        tasks[username] = userTasks;
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+
+        return res.status(200).json({
+            message: 'task updated',
+            task: newTask
+        });
+
+    } catch (err) {
+        console.error('Edit task error:', err);
+        return res.status(500).json({ message: 'unexpected error happened' });
+    }
+});
 
 
 // ----------------------
