@@ -295,6 +295,52 @@ app.post('/delete_task', (req, res) => {
         return res.status(500).json({ message: 'unexpected error happened' });
     }
 });
+app.post('/delete_all_tasks', (req, res) => {
+    try {
+        const { token } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ message: 'missing token' });
+        }
+
+        // Decode username from token
+        const username = decodeToken(token);
+        if (!username) {
+            return res.status(401).json({ message: 'invalid token' });
+        }
+
+        // Load tasks.json
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
+
+        // If user has no tasks, nothing to delete
+        if (!tasks[username]) {
+            tasks[username] = [];
+        }
+
+        // Clear all tasks
+        const deletedTasks = tasks[username]; // keep a copy for response
+        tasks[username] = [];
+
+        // Save updated file
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+
+        return res.status(200).json({
+            message: 'all tasks deleted',
+            deleted: deletedTasks
+        });
+
+    } catch (err) {
+        console.error('Delete all tasks error:', err);
+        return res.status(500).json({ message: 'unexpected error happened' });
+    }
+});
 
 
 // ----------------------
