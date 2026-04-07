@@ -241,6 +241,60 @@ app.post('/get_task', (req, res) => {
         return res.status(500).json({ message: 'unexpected error happened' });
     }
 });
+app.post('/delete_task', (req, res) => {
+    try {
+        const { token, id } = req.body;
+
+        if (!token || !id) {
+            return res.status(400).json({ message: 'missing token or id' });
+        }
+
+        // Decode username from token
+        const username = decodeToken(token);
+        if (!username) {
+            return res.status(401).json({ message: 'invalid token' });
+        }
+
+        // Load tasks.json
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
+
+        // User's tasks (or empty array)
+        const userTasks = tasks[username] || [];
+
+        // Convert id to number (your IDs are numeric timestamps)
+        const taskId = Number(id);
+
+        // Find index of the task
+        const index = userTasks.findIndex(t => t.id === taskId);
+
+        if (index === -1) {
+            return res.status(404).json({ message: 'task not found' });
+        }
+
+        // Remove the task
+        const removed = userTasks.splice(index, 1)[0];
+
+        // Save updated tasks
+        tasks[username] = userTasks;
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+
+        return res.status(200).json({
+            message: 'task deleted',
+            deleted: removed
+        });
+
+    } catch (err) {
+        console.error('Delete task error:', err);
+        return res.status(500).json({ message: 'unexpected error happened' });
+    }
+});
 
 
 // ----------------------
