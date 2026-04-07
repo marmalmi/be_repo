@@ -109,7 +109,7 @@ app.post('/login', async (req, res) => {
 });
 app.post('/add_task', (req, res) => {
     try {
-        const { token, task } = req.body;
+        const { token, task, schedule } = req.body;
 
         if (!token || !task) {
             return res.status(400).json({ message: 'missing token or task' });
@@ -136,13 +136,19 @@ app.post('/add_task', (req, res) => {
             tasks[username] = [];
         }
 
-        // Add new task
+        // Build new task object
         const newTask = {
             id: Date.now(),
             text: task
         };
 
+        // Add schedule only if provided
+        if (schedule) {
+            newTask.schedule = schedule;
+        }
+
         tasks[username].push(newTask);
+        console.log("Writing to:", tasksFile);
 
         // Save file
         fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
