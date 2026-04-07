@@ -4,9 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const argon2 = require('argon2');
 
+
+
 const app = express();
 app.use(express.json());
 
+const cors = require('cors');
+app.use(cors());
 // Correct path for your structure
 const USERS_FILE = path.join(__dirname, 'data', 'users.json');
 

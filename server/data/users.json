@@ -1,1 +1,6 @@
-[]
+[
+  {
+    "username": "admin",
+    "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$F4aNXBfxIcbHzqcS2l5zqg$+ZaBVD6ff/UCMtDhofSx1Y2x1+vcYoBqusjCuXqoxSU"
+  }
+]
