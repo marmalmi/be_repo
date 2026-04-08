@@ -156,7 +156,17 @@
         }
 
         function formatSchedule(barcode) {
-            if (!barcode || barcode.length !== 16) return '(invalid schedule)';
+            if (!barcode) return '(invalid schedule)';
+
+            // Support for date-only schedules
+            if (barcode.length === 8) {
+                const yyyy = barcode.slice(0, 4);
+                const mm = barcode.slice(4, 6);
+                const dd = barcode.slice(6, 8);
+                return `${dd}.${mm}.${yyyy}`;
+            }
+
+            if (barcode.length !== 16) return '(invalid schedule)';
 
             const date = barcode.slice(0, 8);      // YYYYMMDD
             const start = barcode.slice(8, 12);    // HHMM
@@ -171,6 +181,10 @@
 
             const endHH = end.slice(0, 2);
             const endMM = end.slice(2, 4);
+
+            if (start === '0000' && end === '0000') {
+                return `${dd}.${mm}.${yyyy}`;
+            }
 
             return `${dd}.${mm}.${yyyy} — ${startHH}:${startMM} → ${endHH}:${endMM}`;
         }
@@ -253,13 +267,13 @@
 
             let schedule = null;
 
-            if (date && start && end) {
+            if (date) {
                 // Convert date yyyy-mm-dd → yyyymmdd
                 const dateBarcode = date.replace(/-/g, '');
 
-                // Convert HH:MM → HHMM
-                const startBarcode = start.replace(':', '');
-                const endBarcode = end.replace(':', '');
+                // If no time is given, default to 00:00, so date-only schedules are still stored
+                const startBarcode = start ? start.replace(':', '') : '0000';
+                const endBarcode = end ? end.replace(':', '') : '0000';
 
                 schedule = dateBarcode + startBarcode + endBarcode;
             }
