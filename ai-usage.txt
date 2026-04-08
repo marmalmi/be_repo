@@ -1,0 +1,3 @@
+AI usage in development:
+
+* Created starting templates for UI, server and database
