@@ -2,17 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const argon2 = require('argon2');
 
-const TASKS_FILE = path.join(__dirname, 'data', 'tasks.json');
-// Prefix to identify encrypted values in JSON (allows backward compatibility with plaintext)
-const ENC_PREFIX = 'enc:v1';
 
-// Get a 256-bit encryption key from the environment variable using SHA-256 hash
-const TASK_ENCRYPTION_KEY = crypto.createHash('sha256')
-    .update(process.env.TASK_ENCRYPTION_KEY || 'default-insecure-key')
-    .digest();
 
 const app = express();
 app.use(express.json());
@@ -48,103 +40,6 @@ function decodeToken(token) {
     } catch {
         return null;
     }
-}
-
-// Encrypts a string using AES-256-GCM
-// Returns format: enc:v1:base64(iv):base64(authTag):base64(ciphertext)
-function encryptString(value) {
-    if (typeof value !== 'string') {
-        return value;
-    }
-
-    // Generate random initialization vector
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', TASK_ENCRYPTION_KEY, iv);
-    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-    // Authentication tag ensures data hasn't been tampered with
-    const authTag = cipher.getAuthTag();
-
-    return `${ENC_PREFIX}:${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted.toString('base64')}`;
-}
-
-// Decrypts an encrypted string or returns plaintext if not encrypted
-// Supports backward compatibility: if not encrypted, returns value as-is
-function decryptString(value) {
-    if (typeof value !== 'string') {
-        return value;
-    }
-
-    // Check if value is encrypted
-    if (!value.startsWith(`${ENC_PREFIX}:`)) {
-        // Backward compatibility for previously stored plaintext tasks
-        return value;
-    }
-
-    const parts = value.split(':');
-    if (parts.length !== 5 || parts[0] !== 'enc' || parts[1] !== 'v1') {
-        return value;
-    }
-
-    try {
-        // Parse the encrypted format: enc:v1:base64(iv):base64(authTag):base64(ciphertext)
-        const iv = Buffer.from(parts[2], 'base64');
-        const authTag = Buffer.from(parts[3], 'base64');
-        const encrypted = Buffer.from(parts[4], 'base64');
-
-        const decipher = crypto.createDecipheriv('aes-256-gcm', TASK_ENCRYPTION_KEY, iv);
-        decipher.setAuthTag(authTag);
-
-        const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-        return decrypted.toString('utf8');
-    } catch {
-        return value;
-    }
-}
-
-// Encrypt task fields before saving to JSON file
-function serializeTaskForStorage(task) {
-    const storedTask = { ...task };
-
-    // Encrypt task text and schedule
-    if (typeof storedTask.text === 'string') {
-        storedTask.text = encryptString(storedTask.text);
-    }
-
-    if (typeof storedTask.schedule === 'string') {
-        storedTask.schedule = encryptString(storedTask.schedule);
-    }
-
-    return storedTask;
-}
-
-// Decrypt task fields read from JSON file (returns plaintext for API responses)
-function deserializeTaskFromStorage(task) {
-    const taskForResponse = { ...task };
-
-    // Decrypt sensitive fields for sending to client
-    if (typeof taskForResponse.text === 'string') {
-        taskForResponse.text = decryptString(taskForResponse.text);
-    }
-
-    if (typeof taskForResponse.schedule === 'string') {
-        taskForResponse.schedule = decryptString(taskForResponse.schedule);
-    }
-
-    return taskForResponse;
-}
-
-// Load all tasks from encrypted JSON file
-function loadTasks() {
-    try {
-        return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
-    } catch {
-        return {};
-    }
-}
-
-// Save all tasks to JSON file
-function saveTasks(tasks) {
-    fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
 }
 
 // ----------------------
@@ -231,7 +126,14 @@ app.post('/add_task', (req, res) => {
         }
 
         // Load tasks.json
-        const tasks = loadTasks();
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
 
         // Ensure user has a task list
         if (!tasks[username]) {
@@ -249,10 +151,11 @@ app.post('/add_task', (req, res) => {
             newTask.schedule = schedule;
         }
 
-        tasks[username].push(serializeTaskForStorage(newTask));
+        tasks[username].push(newTask);
+        console.log("Writing to:", tasksFile);
 
-        // Save file (task text and schedule are encrypted at rest)
-        saveTasks(tasks);
+        // Save file
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
 
         return res.status(200).json({ message: 'task added', task: newTask });
 
@@ -276,11 +179,17 @@ app.post('/get_all_tasks', (req, res) => {
         }
 
         // Load tasks.json
-        const tasks = loadTasks();
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
 
         // If user has no tasks, return empty array
-        // Decrypt all encrypted tasks before sending to client
-        const userTasks = (tasks[username] || []).map(deserializeTaskFromStorage);
+        const userTasks = tasks[username] || [];
 
         return res.status(200).json({
             message: 'tasks fetched',
@@ -307,14 +216,20 @@ app.post('/get_task', (req, res) => {
         }
 
         // Load tasks.json
-        const tasks = loadTasks();
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
 
         // Get user's tasks (or empty array)
         const userTasks = tasks[username] || [];
-        const taskId = Number(id);
 
         // Find the task with matching ID
-        const task = userTasks.find(t => t.id === taskId);
+        const task = userTasks.find(t => t.id === id);
 
         if (!task) {
             return res.status(404).json({ message: 'task not found' });
@@ -322,8 +237,7 @@ app.post('/get_task', (req, res) => {
 
         return res.status(200).json({
             message: 'task fetched',
-            // Decrypt task before sending to client
-            task: deserializeTaskFromStorage(task)
+            task: task
         });
 
     } catch (err) {
@@ -346,7 +260,14 @@ app.post('/delete_task', (req, res) => {
         }
 
         // Load tasks.json
-        const tasks = loadTasks();
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
 
         // User's tasks (or empty array)
         const userTasks = tasks[username] || [];
@@ -366,12 +287,11 @@ app.post('/delete_task', (req, res) => {
 
         // Save updated tasks
         tasks[username] = userTasks;
-        saveTasks(tasks);
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
 
         return res.status(200).json({
             message: 'task deleted',
-            // Decrypt task before sending to client
-            deleted: deserializeTaskFromStorage(removed)
+            deleted: removed
         });
 
     } catch (err) {
@@ -394,7 +314,14 @@ app.post('/delete_all_tasks', (req, res) => {
         }
 
         // Load tasks.json
-        const tasks = loadTasks();
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
 
         // If user has no tasks, nothing to delete
         if (!tasks[username]) {
@@ -402,12 +329,11 @@ app.post('/delete_all_tasks', (req, res) => {
         }
 
         // Clear all tasks
-        // Decrypt all tasks before sending to client
-        const deletedTasks = (tasks[username] || []).map(deserializeTaskFromStorage);
+        const deletedTasks = tasks[username]; // keep a copy for response
         tasks[username] = [];
 
         // Save updated file
-        saveTasks(tasks);
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
 
         return res.status(200).json({
             message: 'all tasks deleted',
@@ -441,7 +367,14 @@ app.post('/edit_task', (req, res) => {
         const taskId = Number(oldTask.id);
 
         // Load tasks.json
-        const tasks = loadTasks();
+        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
+        let tasks = {};
+
+        try {
+            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+        } catch {
+            tasks = {};
+        }
 
         // User's tasks
         const userTasks = tasks[username] || [];
@@ -453,14 +386,13 @@ app.post('/edit_task', (req, res) => {
             return res.status(404).json({ message: 'task not found' });
         }
 
-        // Replace old task with new task (encrypt before saving)
-        userTasks[index] = serializeTaskForStorage(newTask);
+        // Replace old task with new task
+        userTasks[index] = newTask;
 
         // Save updated tasks
         tasks[username] = userTasks;
-        saveTasks(tasks);
+        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
 
-        // API response returns plaintext task for client
         return res.status(200).json({
             message: 'task updated',
             task: newTask
