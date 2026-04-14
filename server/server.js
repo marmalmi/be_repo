@@ -231,14 +231,7 @@ app.post('/add_task', (req, res) => {
         }
 
         // Load tasks.json
-        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
-        let tasks = {};
-
-        try {
-            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-        } catch {
-            tasks = {};
-        }
+        const tasks = loadTasks();
 
         // Ensure user has a task list
         if (!tasks[username]) {
@@ -256,11 +249,10 @@ app.post('/add_task', (req, res) => {
             newTask.schedule = schedule;
         }
 
-        tasks[username].push(newTask);
-        console.log("Writing to:", tasksFile);
+        tasks[username].push(serializeTaskForStorage(newTask));
 
-        // Save file
-        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+        // Save file (task text and schedule are encrypted at rest)
+        saveTasks(tasks);
 
         return res.status(200).json({ message: 'task added', task: newTask });
 
@@ -284,17 +276,11 @@ app.post('/get_all_tasks', (req, res) => {
         }
 
         // Load tasks.json
-        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
-        let tasks = {};
-
-        try {
-            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-        } catch {
-            tasks = {};
-        }
+        const tasks = loadTasks();
 
         // If user has no tasks, return empty array
-        const userTasks = tasks[username] || [];
+        // Decrypt all encrypted tasks before sending to client
+        const userTasks = (tasks[username] || []).map(deserializeTaskFromStorage);
 
         return res.status(200).json({
             message: 'tasks fetched',
@@ -321,20 +307,14 @@ app.post('/get_task', (req, res) => {
         }
 
         // Load tasks.json
-        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
-        let tasks = {};
-
-        try {
-            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-        } catch {
-            tasks = {};
-        }
+        const tasks = loadTasks();
 
         // Get user's tasks (or empty array)
         const userTasks = tasks[username] || [];
+        const taskId = Number(id);
 
         // Find the task with matching ID
-        const task = userTasks.find(t => t.id === id);
+        const task = userTasks.find(t => t.id === taskId);
 
         if (!task) {
             return res.status(404).json({ message: 'task not found' });
@@ -342,7 +322,8 @@ app.post('/get_task', (req, res) => {
 
         return res.status(200).json({
             message: 'task fetched',
-            task: task
+            // Decrypt task before sending to client
+            task: deserializeTaskFromStorage(task)
         });
 
     } catch (err) {
@@ -365,14 +346,7 @@ app.post('/delete_task', (req, res) => {
         }
 
         // Load tasks.json
-        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
-        let tasks = {};
-
-        try {
-            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-        } catch {
-            tasks = {};
-        }
+        const tasks = loadTasks();
 
         // User's tasks (or empty array)
         const userTasks = tasks[username] || [];
@@ -392,11 +366,12 @@ app.post('/delete_task', (req, res) => {
 
         // Save updated tasks
         tasks[username] = userTasks;
-        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+        saveTasks(tasks);
 
         return res.status(200).json({
             message: 'task deleted',
-            deleted: removed
+            // Decrypt task before sending to client
+            deleted: deserializeTaskFromStorage(removed)
         });
 
     } catch (err) {
@@ -419,14 +394,7 @@ app.post('/delete_all_tasks', (req, res) => {
         }
 
         // Load tasks.json
-        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
-        let tasks = {};
-
-        try {
-            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-        } catch {
-            tasks = {};
-        }
+        const tasks = loadTasks();
 
         // If user has no tasks, nothing to delete
         if (!tasks[username]) {
@@ -434,11 +402,12 @@ app.post('/delete_all_tasks', (req, res) => {
         }
 
         // Clear all tasks
-        const deletedTasks = tasks[username]; // keep a copy for response
+        // Decrypt all tasks before sending to client
+        const deletedTasks = (tasks[username] || []).map(deserializeTaskFromStorage);
         tasks[username] = [];
 
         // Save updated file
-        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+        saveTasks(tasks);
 
         return res.status(200).json({
             message: 'all tasks deleted',
@@ -472,14 +441,7 @@ app.post('/edit_task', (req, res) => {
         const taskId = Number(oldTask.id);
 
         // Load tasks.json
-        const tasksFile = path.join(__dirname, 'data', 'tasks.json');
-        let tasks = {};
-
-        try {
-            tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-        } catch {
-            tasks = {};
-        }
+        const tasks = loadTasks();
 
         // User's tasks
         const userTasks = tasks[username] || [];
@@ -491,12 +453,12 @@ app.post('/edit_task', (req, res) => {
             return res.status(404).json({ message: 'task not found' });
         }
 
-        // Replace old task with new task
-        userTasks[index] = newTask;
+        // Replace old task with new task (encrypt before saving)
+        userTasks[index] = serializeTaskForStorage(newTask);
 
         // Save updated tasks
         tasks[username] = userTasks;
-        fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2));
+        saveTasks(tasks);
 
         return res.status(200).json({
             message: 'task updated',
