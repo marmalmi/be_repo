@@ -1,3 +1,5 @@
 AI usage in development:
 
 * Created starting templates for UI, server and database
+* Asked for a good structure/template for README file
+* Asked for help about AES 256 encryption and how to get started with encryption functions and routes
