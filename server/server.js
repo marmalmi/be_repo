@@ -2,9 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const argon2 = require('argon2');
 
+const TASKS_FILE = path.join(__dirname, 'data', 'tasks.json');
+// Prefix to identify encrypted values in JSON (allows backward compatibility with plaintext)
+const ENC_PREFIX = 'enc:v1';
 
+// Get a 256-bit encryption key from the environment variable using SHA-256 hash
+const TASK_ENCRYPTION_KEY = crypto.createHash('sha256')
+    .update(process.env.TASK_ENCRYPTION_KEY || 'default-insecure-key')
+    .digest();
 
 const app = express();
 app.use(express.json());
@@ -40,6 +48,103 @@ function decodeToken(token) {
     } catch {
         return null;
     }
+}
+
+// Encrypts a string using AES-256-GCM
+// Returns format: enc:v1:base64(iv):base64(authTag):base64(ciphertext)
+function encryptString(value) {
+    if (typeof value !== 'string') {
+        return value;
+    }
+
+    // Generate random initialization vector
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', TASK_ENCRYPTION_KEY, iv);
+    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+    // Authentication tag ensures data hasn't been tampered with
+    const authTag = cipher.getAuthTag();
+
+    return `${ENC_PREFIX}:${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted.toString('base64')}`;
+}
+
+// Decrypts an encrypted string or returns plaintext if not encrypted
+// Supports backward compatibility: if not encrypted, returns value as-is
+function decryptString(value) {
+    if (typeof value !== 'string') {
+        return value;
+    }
+
+    // Check if value is encrypted
+    if (!value.startsWith(`${ENC_PREFIX}:`)) {
+        // Backward compatibility for previously stored plaintext tasks
+        return value;
+    }
+
+    const parts = value.split(':');
+    if (parts.length !== 5 || parts[0] !== 'enc' || parts[1] !== 'v1') {
+        return value;
+    }
+
+    try {
+        // Parse the encrypted format: enc:v1:base64(iv):base64(authTag):base64(ciphertext)
+        const iv = Buffer.from(parts[2], 'base64');
+        const authTag = Buffer.from(parts[3], 'base64');
+        const encrypted = Buffer.from(parts[4], 'base64');
+
+        const decipher = crypto.createDecipheriv('aes-256-gcm', TASK_ENCRYPTION_KEY, iv);
+        decipher.setAuthTag(authTag);
+
+        const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+        return decrypted.toString('utf8');
+    } catch {
+        return value;
+    }
+}
+
+// Encrypt task fields before saving to JSON file
+function serializeTaskForStorage(task) {
+    const storedTask = { ...task };
+
+    // Encrypt task text and schedule
+    if (typeof storedTask.text === 'string') {
+        storedTask.text = encryptString(storedTask.text);
+    }
+
+    if (typeof storedTask.schedule === 'string') {
+        storedTask.schedule = encryptString(storedTask.schedule);
+    }
+
+    return storedTask;
+}
+
+// Decrypt task fields read from JSON file (returns plaintext for API responses)
+function deserializeTaskFromStorage(task) {
+    const taskForResponse = { ...task };
+
+    // Decrypt sensitive fields for sending to client
+    if (typeof taskForResponse.text === 'string') {
+        taskForResponse.text = decryptString(taskForResponse.text);
+    }
+
+    if (typeof taskForResponse.schedule === 'string') {
+        taskForResponse.schedule = decryptString(taskForResponse.schedule);
+    }
+
+    return taskForResponse;
+}
+
+// Load all tasks from encrypted JSON file
+function loadTasks() {
+    try {
+        return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
+    } catch {
+        return {};
+    }
+}
+
+// Save all tasks to JSON file
+function saveTasks(tasks) {
+    fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
 }
 
 // ----------------------
