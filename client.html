@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Todo Front</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #111;
+            color: #eee;
+        }
+
+        input,
+        button,
+        textarea {
+            margin: 4px;
+            padding: 4px;
+            font-family: inherit;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .box {
+            border: 1px solid #555;
+            padding: 8px;
+            margin: 8px;
+        }
+
+        .task {
+            border-bottom: 1px dashed #444;
+            padding: 4px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Todo Front</h1>
+
+    <div id="loginBox" class="box">
+        <h2>Login</h2>
+        <div>
+            <label>Username: <input id="loginUser"></label>
+        </div>
+        <div>
+            <label>Password: <input id="loginPass" type="password"></label>
+        </div>
+        <button id="loginBtn">Login</button>
+        <div id="loginStatus"></div>
+        <button id="showRegisterBtn">Register</button>
+
+    </div>
+
+    <div id="registerBox" class="box hidden">
+        <h2>Register</h2>
+
+        <div>
+            <label>Username: <input id="regUser"></label>
+        </div>
+
+        <div>
+            <label>Password: <input id="regPass1" type="password"></label>
+        </div>
+
+        <div>
+            <label>Repeat Password: <input id="regPass2" type="password"></label>
+        </div>
+
+        <button id="registerBtn">Create Account</button>
+        <button id="cancelRegisterBtn">Cancel</button>
+
+        <div id="registerStatus"></div>
+    </div>
+
+    <div id="appBox" class="box hidden">
+        <h2>Tasks</h2>
+        <button id="reloadBtn">Reload tasks</button>
+        <button id="deleteAllBtn" style="color:red;">DELETE ALL TASKS</button>
+        <button id="logoutBtn" style="background:#600; color:white;">Logout</button>
+
+        <div id="tasksBox"></div>
+
+        <h3>Add task</h3>
+
+        <div>
+            <label>Description:</label><br>
+            <textarea id="newTaskText" rows="3" style="width:300px;"></textarea>
+        </div>
+
+        <div style="margin-top:10px;">
+            <label>Date: <input type="date" id="dateInput"></label>
+        </div>
+
+        <div>
+            <label>Start time: <input type="time" id="startTimeInput"></label>
+        </div>
+
+        <div>
+            <label>End time: <input type="time" id="endTimeInput"></label>
+        </div>
+
+        <button id="addTaskBtn">Add</button>
+        <div id="addStatus"></div>
+
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:' + (new URLSearchParams(location.search).get('port') || (window.PORT || 3000));
+        let token = null;
+        let currentTasks = [];
+
+        function $(id) { return document.getElementById(id); }
+
+        async function api(path, body) {
+            const res = await fetch(API_BASE + path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json().catch(() => ({}));
+            return { status: res.status, data };
+        }
+
+        $('loginBtn').onclick = async () => {
+            const username = $('loginUser').value.trim();
+            const password = $('loginPass').value;
+
+            $('loginStatus').textContent = 'Logging in...';
+
+            const { status, data } = await api('/login', { username, password });
+
+            if (status === 200 && data.message === true) {
+                // backend doesn't return token, so we generate it the same way
+                token = btoa(username);
+                $('loginBox').classList.add('hidden');
+                $('appBox').classList.remove('hidden');
+                $('loginStatus').textContent = '';
+                loadTasks();
+            } else {
+                $('loginStatus').textContent = 'Login failed: ' + JSON.stringify(data);
+            }
+        };
+
+        async function loadTasks() {
+            if (!token) return;
+            $('tasksBox').textContent = 'Loading...';
+            const { status, data } = await api('/get_all_tasks', { token });
+            if (status === 200) {
+                currentTasks = data.tasks || [];
+                renderTasks();
+            } else {
+                $('tasksBox').textContent = 'Error: ' + JSON.stringify(data);
+            }
+        }
+
+        function formatSchedule(barcode) {
+            if (!barcode) return '(invalid schedule)';
+
+            // Support for date-only schedules
+            if (barcode.length === 8) {
+                const yyyy = barcode.slice(0, 4);
+                const mm = barcode.slice(4, 6);
+                const dd = barcode.slice(6, 8);
+                return `${dd}.${mm}.${yyyy}`;
+            }
+
+            if (barcode.length !== 16) return '(invalid schedule)';
+
+            const date = barcode.slice(0, 8);      // YYYYMMDD
+            const start = barcode.slice(8, 12);    // HHMM
+            const end = barcode.slice(12, 16);     // HHMM
+
+            const yyyy = date.slice(0, 4);
+            const mm = date.slice(4, 6);
+            const dd = date.slice(6, 8);
+
+            const startHH = start.slice(0, 2);
+            const startMM = start.slice(2, 4);
+
+            const endHH = end.slice(0, 2);
+            const endMM = end.slice(2, 4);
+
+            if (start === '0000' && end === '0000') {
+                return `${dd}.${mm}.${yyyy}`;
+            }
+
+            return `${dd}.${mm}.${yyyy} — ${startHH}:${startMM} → ${endHH}:${endMM}`;
+        }
+
+
+        function renderTasks() {
+            const box = $('tasksBox');
+            box.innerHTML = '';
+            if (!currentTasks.length) {
+                box.textContent = '(no tasks)';
+                return;
+            }
+            currentTasks.forEach(t => {
+                const div = document.createElement('div');
+                div.className = 'task';
+                div.innerHTML = `
+          <div><b>ID:</b> ${t.id}</div>
+          <div><b>Text:</b> ${t.text || ''}</div>
+          <div><b>Schedule:</b> ${t.schedule ? formatSchedule(t.schedule) : '(none)'
+                    }</div>
+
+          <button data-id="${t.id}" class="delBtn">Delete</button>
+          <button data-id="${t.id}" class="editBtn">Edit</button>
+        `;
+                box.appendChild(div);
+            });
+
+            box.querySelectorAll('.delBtn').forEach(btn => {
+                btn.onclick = async () => {
+                    const id = Number(btn.getAttribute('data-id'));
+                    const { status, data } = await api('/delete_task', { token, id });
+                    if (status === 200) {
+                        loadTasks();
+                    } else {
+                        alert('Delete failed: ' + JSON.stringify(data));
+                    }
+                };
+            });
+
+            box.querySelectorAll('.editBtn').forEach(btn => {
+                btn.onclick = async () => {
+                    const id = Number(btn.getAttribute('data-id'));
+                    const oldTask = currentTasks.find(t => t.id === id);
+                    if (!oldTask) return;
+
+                    const newText = prompt('New text:', oldTask.text || '');
+                    if (newText === null) return;
+
+                    const newSchedule = prompt('New schedule (blank to keep):', oldTask.schedule || '');
+                    const newTask = {
+                        id: oldTask.id,
+                        text: newText,
+                        schedule: newSchedule || oldTask.schedule
+                    };
+
+                    const { status, data } = await api('/edit_task', { token, oldTask, newTask });
+                    if (status === 200) {
+                        loadTasks();
+                    } else {
+                        alert('Edit failed: ' + JSON.stringify(data));
+                    }
+                };
+            });
+        }
+
+        $('reloadBtn').onclick = loadTasks;
+
+        $('addTaskBtn').onclick = async () => {
+            if (!token) return;
+
+            const text = $('newTaskText').value.trim();
+            if (!text) {
+                $('addStatus').textContent = 'Need description.';
+                return;
+            }
+
+            const date = $('dateInput').value;        // yyyy-mm-dd
+            const start = $('startTimeInput').value;  // HH:MM
+            const end = $('endTimeInput').value;      // HH:MM
+
+            let schedule = null;
+
+            if (date) {
+                // Convert date yyyy-mm-dd → yyyymmdd
+                const dateBarcode = date.replace(/-/g, '');
+
+                // If no time is given, default to 00:00, so date-only schedules are still stored
+                const startBarcode = start ? start.replace(':', '') : '0000';
+                const endBarcode = end ? end.replace(':', '') : '0000';
+
+                schedule = dateBarcode + startBarcode + endBarcode;
+            }
+
+            $('addStatus').textContent = 'Adding...';
+
+            const body = { token, task: text };
+            if (schedule) body.schedule = schedule;
+
+            const { status, data } = await api('/add_task', body);
+
+            if (status === 200) {
+                $('addStatus').textContent = 'Added.';
+                $('newTaskText').value = '';
+                $('dateInput').value = '';
+                $('startTimeInput').value = '';
+                $('endTimeInput').value = '';
+                loadTasks();
+            } else {
+                $('addStatus').textContent = 'Error: ' + JSON.stringify(data);
+            }
+        };
+
+
+        $('deleteAllBtn').onclick = async () => {
+            if (!token) return;
+            if (!confirm('Really delete ALL tasks?')) return;
+            const { status, data } = await api('/delete_all_tasks', { token });
+            if (status === 200) {
+                loadTasks();
+            } else {
+                alert('Delete all failed: ' + JSON.stringify(data));
+            }
+        };
+        $('logoutBtn').onclick = () => {
+            token = null;
+            currentTasks = [];
+
+            // Clear UI
+            $('tasksBox').innerHTML = '';
+            $('newTaskText').value = '';
+            $('dateInput').value = '';
+            $('startTimeInput').value = '';
+            $('endTimeInput').value = '';
+            $('addStatus').textContent = '';
+
+            // Switch screens
+            $('appBox').classList.add('hidden');
+            $('loginBox').classList.remove('hidden');
+
+            // Clear login fields for good measure
+            $('loginUser').value = '';
+            $('loginPass').value = '';
+        };
+
+        // Show register box
+        $('showRegisterBtn').onclick = () => {
+            $('loginBox').classList.add('hidden');
+            $('registerBox').classList.remove('hidden');
+        };
+
+        // Cancel register
+        $('cancelRegisterBtn').onclick = () => {
+            $('registerBox').classList.add('hidden');
+            $('loginBox').classList.remove('hidden');
+            $('registerStatus').textContent = '';
+            $('regUser').value = '';
+            $('regPass1').value = '';
+            $('regPass2').value = '';
+        };
+
+        // Perform registration
+        $('registerBtn').onclick = async () => {
+            const username = $('regUser').value.trim();
+            const pass1 = $('regPass1').value;
+            const pass2 = $('regPass2').value;
+
+            if (!username || !pass1 || !pass2) {
+                $('registerStatus').textContent = 'All fields required.';
+                return;
+            }
+
+            if (pass1 !== pass2) {
+                $('registerStatus').textContent = 'Passwords do not match.';
+                return;
+            }
+
+            $('registerStatus').textContent = 'Registering...';
+
+            const { status, data } = await api('/register', {
+                username,
+                password: pass1
+            });
+
+            if (status === 201) {
+                $('registerStatus').textContent = 'Registered! Returning to login...';
+
+                setTimeout(() => {
+                    $('registerBox').classList.add('hidden');
+                    $('loginBox').classList.remove('hidden');
+                    $('registerStatus').textContent = '';
+                    $('regUser').value = '';
+                    $('regPass1').value = '';
+                    $('regPass2').value = '';
+                }, 800);
+
+            } else {
+                $('registerStatus').textContent = 'Error: ' + JSON.stringify(data);
+            }
+        };
+
+
+    </script>
+</body>
+
+</html>
