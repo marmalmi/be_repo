@@ -1,5 +1,12 @@
 {
+  "scripts": {
+    "test": "jest"
+  },
   "dependencies": {
     "cors": "^2.8.6"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "supertest": "^7.2.2"
   }
 }
