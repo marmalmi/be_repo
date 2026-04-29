@@ -3,45 +3,50 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Todo Front</title>
+    <title>To-do List</title>
+    <link href="https://fonts.googleapis.com/css2?family=Satisfy&display=swap" rel="stylesheet">
     <style>
+        
         body {
-            font-family: monospace;
-            background: #111;
-            color: #eee;
+            font-family: Arial, sans-serif;
+            background: #d5e9f5;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
         }
-
-        input,
-        button,
-        textarea {
-            margin: 4px;
-            padding: 4px;
-            font-family: inherit;
+        h1 {
+            font-family: 'Satisfy', cursive;
+            font-size: 3.5em;
         }
-
+        .box {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 300px;
+        }
+        input, button, textarea {
+            width: 90%;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        button {
+            cursor: pointer;
+        }
         .hidden {
             display: none;
         }
-
-        .box {
-            border: 1px solid #555;
-            padding: 8px;
-            margin: 8px;
-        }
-
         .task {
             border-bottom: 1px dashed #444;
             padding: 4px 0;
-        }
-
-        .error {
-            color: #f88;
         }
     </style>
 </head>
 
 <body>
-    <h1>Todo Front</h1>
+    <h1>To-do List</h1>
 
     <div id="loginBox" class="box">
         <h2>Login</h2>
@@ -54,21 +59,27 @@
         <button id="loginBtn">Login</button>
         <div id="loginStatus"></div>
         <button id="showRegisterBtn">Register</button>
+
     </div>
 
     <div id="registerBox" class="box hidden">
         <h2>Register</h2>
+
         <div>
             <label>Username: <input id="regUser"></label>
         </div>
+
         <div>
             <label>Password: <input id="regPass1" type="password"></label>
         </div>
+
         <div>
             <label>Repeat Password: <input id="regPass2" type="password"></label>
         </div>
+
         <button id="registerBtn">Create Account</button>
         <button id="cancelRegisterBtn">Cancel</button>
+
         <div id="registerStatus"></div>
     </div>
 
@@ -81,21 +92,27 @@
         <div id="tasksBox"></div>
 
         <h3>Add task</h3>
+
         <div>
             <label>Description:</label><br>
             <textarea id="newTaskText" rows="3" style="width:300px;"></textarea>
         </div>
+
         <div style="margin-top:10px;">
             <label>Date: <input type="date" id="dateInput"></label>
         </div>
+
         <div>
             <label>Start time: <input type="time" id="startTimeInput"></label>
         </div>
+
         <div>
             <label>End time: <input type="time" id="endTimeInput"></label>
         </div>
+
         <button id="addTaskBtn">Add</button>
         <div id="addStatus"></div>
+
     </div>
 
     <script>
@@ -104,11 +121,6 @@
         let currentTasks = [];
 
         function $(id) { return document.getElementById(id); }
-
-        function setStatus(el, msg, isError = false) {
-            el.textContent = msg;
-            el.className = isError ? 'error' : '';
-        }
 
         async function api(path, body) {
             const res = await fetch(API_BASE + path, {
@@ -124,18 +136,19 @@
             const username = $('loginUser').value.trim();
             const password = $('loginPass').value;
 
-            setStatus($('loginStatus'), 'Logging in...');
+            $('loginStatus').textContent = 'Logging in...';
 
             const { status, data } = await api('/login', { username, password });
 
-            if (status === 200 && data.token) {
-                token = data.token;
+            if (status === 200 && data.message === true) {
+                // backend doesn't return token, so we generate it the same way
+                token = btoa(username);
                 $('loginBox').classList.add('hidden');
                 $('appBox').classList.remove('hidden');
-                setStatus($('loginStatus'), '');
+                $('loginStatus').textContent = '';
                 loadTasks();
             } else {
-                setStatus($('loginStatus'), data.message || 'Login failed', true);
+                $('loginStatus').textContent = 'Login failed: ' + JSON.stringify(data);
             }
         };
 
@@ -147,13 +160,14 @@
                 currentTasks = data.tasks || [];
                 renderTasks();
             } else {
-                $('tasksBox').textContent = 'Error: ' + (data.message || 'unknown error');
+                $('tasksBox').textContent = 'Error: ' + JSON.stringify(data);
             }
         }
 
         function formatSchedule(barcode) {
             if (!barcode) return '(invalid schedule)';
 
+            // Support for date-only schedules
             if (barcode.length === 8) {
                 const yyyy = barcode.slice(0, 4);
                 const mm = barcode.slice(4, 6);
@@ -163,82 +177,27 @@
 
             if (barcode.length !== 16) return '(invalid schedule)';
 
-            const yyyy = barcode.slice(0, 4);
-            const mm = barcode.slice(4, 6);
-            const dd = barcode.slice(6, 8);
-            const startHH = barcode.slice(8, 10);
-            const startMM = barcode.slice(10, 12);
-            const endHH = barcode.slice(12, 14);
-            const endMM = barcode.slice(14, 16);
+            const date = barcode.slice(0, 8);      // YYYYMMDD
+            const start = barcode.slice(8, 12);    // HHMM
+            const end = barcode.slice(12, 16);     // HHMM
 
-            if (startHH === '00' && startMM === '00' && endHH === '00' && endMM === '00') {
+            const yyyy = date.slice(0, 4);
+            const mm = date.slice(4, 6);
+            const dd = date.slice(6, 8);
+
+            const startHH = start.slice(0, 2);
+            const startMM = start.slice(2, 4);
+
+            const endHH = end.slice(0, 2);
+            const endMM = end.slice(2, 4);
+
+            if (start === '0000' && end === '0000') {
                 return `${dd}.${mm}.${yyyy}`;
             }
 
             return `${dd}.${mm}.${yyyy} — ${startHH}:${startMM} → ${endHH}:${endMM}`;
         }
 
-        function buildTaskElement(t) {
-            const div = document.createElement('div');
-            div.className = 'task';
-
-            const idLine = document.createElement('div');
-            const idLabel = document.createElement('b');
-            idLabel.textContent = 'ID: ';
-            idLine.appendChild(idLabel);
-            idLine.appendChild(document.createTextNode(t.id));
-
-            const textLine = document.createElement('div');
-            const textLabel = document.createElement('b');
-            textLabel.textContent = 'Text: ';
-            textLine.appendChild(textLabel);
-            textLine.appendChild(document.createTextNode(t.text || ''));
-
-            const scheduleLine = document.createElement('div');
-            const schedLabel = document.createElement('b');
-            schedLabel.textContent = 'Schedule: ';
-            scheduleLine.appendChild(schedLabel);
-            scheduleLine.appendChild(document.createTextNode(t.schedule ? formatSchedule(t.schedule) : '(none)'));
-
-            const delBtn = document.createElement('button');
-            delBtn.textContent = 'Delete';
-            delBtn.onclick = async () => {
-                const { status, data } = await api('/delete_task', { token, id: t.id });
-                if (status === 200) {
-                    loadTasks();
-                } else {
-                    alert('Delete failed: ' + (data.message || 'unknown error'));
-                }
-            };
-
-            const editBtn = document.createElement('button');
-            editBtn.textContent = 'Edit';
-            editBtn.onclick = async () => {
-                const newText = prompt('New text:', t.text || '');
-                if (newText === null) return;
-
-                const newSchedule = prompt('New schedule (blank to keep):', t.schedule || '');
-                const updatedTask = {
-                    id: t.id,
-                    text: newText,
-                    schedule: newSchedule || t.schedule
-                };
-
-                const { status, data } = await api('/edit_task', { token, oldTask: t, newTask: updatedTask });
-                if (status === 200) {
-                    loadTasks();
-                } else {
-                    alert('Edit failed: ' + (data.message || 'unknown error'));
-                }
-            };
-
-            div.appendChild(idLine);
-            div.appendChild(textLine);
-            div.appendChild(scheduleLine);
-            div.appendChild(delBtn);
-            div.appendChild(editBtn);
-            return div;
-        }
 
         function renderTasks() {
             const box = $('tasksBox');
@@ -247,7 +206,57 @@
                 box.textContent = '(no tasks)';
                 return;
             }
-            currentTasks.forEach(t => box.appendChild(buildTaskElement(t)));
+            currentTasks.forEach(t => {
+                const div = document.createElement('div');
+                div.className = 'task';
+                div.innerHTML = `
+          <div><b>ID:</b> ${t.id}</div>
+          <div><b>Text:</b> ${t.text || ''}</div>
+          <div><b>Schedule:</b> ${t.schedule ? formatSchedule(t.schedule) : '(none)'
+                    }</div>
+
+          <button data-id="${t.id}" class="delBtn">Delete</button>
+          <button data-id="${t.id}" class="editBtn">Edit</button>
+        `;
+                box.appendChild(div);
+            });
+
+            box.querySelectorAll('.delBtn').forEach(btn => {
+                btn.onclick = async () => {
+                    const id = Number(btn.getAttribute('data-id'));
+                    const { status, data } = await api('/delete_task', { token, id });
+                    if (status === 200) {
+                        loadTasks();
+                    } else {
+                        alert('Delete failed: ' + JSON.stringify(data));
+                    }
+                };
+            });
+
+            box.querySelectorAll('.editBtn').forEach(btn => {
+                btn.onclick = async () => {
+                    const id = Number(btn.getAttribute('data-id'));
+                    const oldTask = currentTasks.find(t => t.id === id);
+                    if (!oldTask) return;
+
+                    const newText = prompt('New text:', oldTask.text || '');
+                    if (newText === null) return;
+
+                    const newSchedule = prompt('New schedule (blank to keep):', oldTask.schedule || '');
+                    const newTask = {
+                        id: oldTask.id,
+                        text: newText,
+                        schedule: newSchedule || oldTask.schedule
+                    };
+
+                    const { status, data } = await api('/edit_task', { token, oldTask, newTask });
+                    if (status === 200) {
+                        loadTasks();
+                    } else {
+                        alert('Edit failed: ' + JSON.stringify(data));
+                    }
+                };
+            });
         }
 
         $('reloadBtn').onclick = loadTasks;
@@ -257,40 +266,46 @@
 
             const text = $('newTaskText').value.trim();
             if (!text) {
-                setStatus($('addStatus'), 'Need description.', true);
+                $('addStatus').textContent = 'Need description.';
                 return;
             }
 
-            const date = $('dateInput').value;
-            const start = $('startTimeInput').value;
-            const end = $('endTimeInput').value;
+            const date = $('dateInput').value;        // yyyy-mm-dd
+            const start = $('startTimeInput').value;  // HH:MM
+            const end = $('endTimeInput').value;      // HH:MM
 
             let schedule = null;
+
             if (date) {
+                // Convert date yyyy-mm-dd → yyyymmdd
                 const dateBarcode = date.replace(/-/g, '');
+
+                // If no time is given, default to 00:00, so date-only schedules are still stored
                 const startBarcode = start ? start.replace(':', '') : '0000';
                 const endBarcode = end ? end.replace(':', '') : '0000';
+
                 schedule = dateBarcode + startBarcode + endBarcode;
             }
 
-            setStatus($('addStatus'), 'Adding...');
+            $('addStatus').textContent = 'Adding...';
 
             const body = { token, task: text };
             if (schedule) body.schedule = schedule;
 
             const { status, data } = await api('/add_task', body);
 
-            if (status === 201) {
-                setStatus($('addStatus'), 'Added.');
+            if (status === 200) {
+                $('addStatus').textContent = 'Added.';
                 $('newTaskText').value = '';
                 $('dateInput').value = '';
                 $('startTimeInput').value = '';
                 $('endTimeInput').value = '';
                 loadTasks();
             } else {
-                setStatus($('addStatus'), 'Error: ' + (data.message || 'unknown error'), true);
+                $('addStatus').textContent = 'Error: ' + JSON.stringify(data);
             }
         };
+
 
         $('deleteAllBtn').onclick = async () => {
             if (!token) return;
@@ -299,78 +314,87 @@
             if (status === 200) {
                 loadTasks();
             } else {
-                alert('Delete all failed: ' + (data.message || 'unknown error'));
+                alert('Delete all failed: ' + JSON.stringify(data));
             }
         };
-
-        $('logoutBtn').onclick = async () => {
-            if (token) {
-                await api('/logout', { token });
-                token = null;
-            }
+        $('logoutBtn').onclick = () => {
+            token = null;
             currentTasks = [];
 
+            // Clear UI
             $('tasksBox').innerHTML = '';
             $('newTaskText').value = '';
             $('dateInput').value = '';
             $('startTimeInput').value = '';
             $('endTimeInput').value = '';
-            setStatus($('addStatus'), '');
+            $('addStatus').textContent = '';
 
+            // Switch screens
             $('appBox').classList.add('hidden');
             $('loginBox').classList.remove('hidden');
 
+            // Clear login fields for good measure
             $('loginUser').value = '';
             $('loginPass').value = '';
         };
 
+        // Show register box
         $('showRegisterBtn').onclick = () => {
             $('loginBox').classList.add('hidden');
             $('registerBox').classList.remove('hidden');
         };
 
+        // Cancel register
         $('cancelRegisterBtn').onclick = () => {
             $('registerBox').classList.add('hidden');
             $('loginBox').classList.remove('hidden');
-            setStatus($('registerStatus'), '');
+            $('registerStatus').textContent = '';
             $('regUser').value = '';
             $('regPass1').value = '';
             $('regPass2').value = '';
         };
 
+        // Perform registration
         $('registerBtn').onclick = async () => {
             const username = $('regUser').value.trim();
             const pass1 = $('regPass1').value;
             const pass2 = $('regPass2').value;
 
             if (!username || !pass1 || !pass2) {
-                setStatus($('registerStatus'), 'All fields required.', true);
+                $('registerStatus').textContent = 'All fields required.';
                 return;
             }
 
             if (pass1 !== pass2) {
-                setStatus($('registerStatus'), 'Passwords do not match.', true);
+                $('registerStatus').textContent = 'Passwords do not match.';
                 return;
             }
 
-            setStatus($('registerStatus'), 'Registering...');
+            $('registerStatus').textContent = 'Registering...';
 
-            const { status, data } = await api('/register', { username, password: pass1 });
+            const { status, data } = await api('/register', {
+                username,
+                password: pass1
+            });
 
             if (status === 201) {
-                setStatus($('registerStatus'), 'Registered! Returning to login...');
+                $('registerStatus').textContent = 'Registered! Returning to login...';
+
                 setTimeout(() => {
                     $('registerBox').classList.add('hidden');
                     $('loginBox').classList.remove('hidden');
-                    setStatus($('registerStatus'), '');
+                    $('registerStatus').textContent = '';
                     $('regUser').value = '';
                     $('regPass1').value = '';
                     $('regPass2').value = '';
                 }, 800);
+
             } else {
-                setStatus($('registerStatus'), 'Error: ' + (data.message || 'unknown error'), true);
+                $('registerStatus').textContent = 'Error: ' + JSON.stringify(data);
             }
         };
+
+
     </script>
 </body>
 
